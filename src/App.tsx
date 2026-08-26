@@ -15,12 +15,15 @@ import {
   calcTotals,
   formatMoney,
   formatMoneyExact,
+  newApartmentId,
   sumRows,
   rateBaseLabel,
+  type Apartment,
   type MonthEntry,
   type RateBase,
 } from './lib/finance'
-import { loadEntries, saveEntries, entriesToJson, parseImportedEntries } from './lib/storage'
+import { loadState, saveState, stateToJson, parseImportedState } from './lib/storage'
+import { fileSlug } from './lib/state'
 import { downloadTextFile, entriesToCsv, entriesToXls } from './lib/exportFiles'
 
 type MetricKey = 'gross' | 'maintenance' | 'cleaning' | 'tax' | 'agentFee' | 'owner'
@@ -48,6 +51,10 @@ function parseAmount(value: string): number | null {
 
 export default function App() {
   const [entries, setEntries] = useState<MonthEntry[]>([])
+  const [apartments, setApartments] = useState<Apartment[]>([])
+  const [activeId, setActiveId] = useState('')
+  const [nameMode, setNameMode] = useState<'idle' | 'add' | 'rename'>('idle')
+  const [nameDraft, setNameDraft] = useState('')
   const [ready, setReady] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [year, setYear] = useState(currentYear)
@@ -75,10 +82,17 @@ export default function App() {
     let cancelled = false
     void (async () => {
       try {
-        const loaded = await loadEntries()
+        const loaded = await loadState()
         if (cancelled) return
-        setEntries(loaded)
-        const found = loaded.find((e) => e.year === currentYear && e.month === currentMonth)
+        setApartments(loaded.apartments)
+        setActiveId(loaded.activeApartmentId)
+        setEntries(loaded.entries)
+        const found = loaded.entries.find(
+          (e) =>
+            e.apartmentId === loaded.activeApartmentId &&
+            e.year === currentYear &&
+            e.month === currentMonth,
+        )
         if (found) {
           setGross(String(found.gross))
           setMaintenance(String(found.maintenance))
@@ -100,18 +114,32 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return
-    void saveEntries(entries).catch(() => {
+    void saveState({
+      apartments,
+      activeApartmentId: activeId,
+      entries,
+    }).catch(() => {
       setError('Не удалось сохранить в базу')
     })
-  }, [entries, ready])
+  }, [apartments, activeId, entries, ready])
+
+  const currentApartment =
+    apartments.find((item) => item.id === activeId) ?? apartments[0]
+  const currentEntries = useMemo(
+    () => entries.filter((item) => item.apartmentId === currentApartment?.id),
+    [entries, currentApartment?.id],
+  )
 
   const years = useMemo(() => {
-    const fromData = entries.map((e) => e.year)
+    const fromData = currentEntries.map((e) => e.year)
     const set = new Set([currentYear, year, ...fromData, currentYear - 1, currentYear + 1])
     return [...set].sort((a, b) => b - a)
-  }, [entries, year])
+  }, [currentEntries, year])
 
-  const rows = useMemo(() => buildYearRows(year, entries), [year, entries])
+  const rows = useMemo(
+    () => buildYearRows(year, currentEntries),
+    [year, currentEntries],
+  )
   const totals = useMemo(() => sumRows(rows), [rows])
   const filledCount = rows.filter((r) => r.entry).length
   const deductions = totals.maintenance + totals.cleaning + totals.tax + totals.agentFee
@@ -135,7 +163,10 @@ export default function App() {
   }, [gross, maintenance, cleaning, taxPercent, taxBase, agentPercent, agentBase])
 
   function loadMonth(nextYear: number, nextMonth: number) {
-    const found = entries.find((e) => e.year === nextYear && e.month === nextMonth)
+    const apartmentId = currentApartment?.id
+    const found = entries.find(
+      (e) => e.apartmentId === apartmentId && e.year === nextYear && e.month === nextMonth,
+    )
     setYear(nextYear)
     setMonth(nextMonth)
     setError('')
@@ -158,6 +189,10 @@ export default function App() {
 
   function onSave(e: FormEvent) {
     e.preventDefault()
+    if (!currentApartment) {
+      setError('Сначала добавьте квартиру')
+      return
+    }
     const g = parseAmount(gross)
     const m = parseAmount(maintenance)
     const c = parseAmount(cleaning)
@@ -182,6 +217,7 @@ export default function App() {
     }
 
     const next: MonthEntry = {
+      apartmentId: currentApartment.id,
       year,
       month,
       gross: g,
@@ -194,14 +230,33 @@ export default function App() {
     }
 
     setEntries((prev) => {
-      const without = prev.filter((item) => !(item.year === year && item.month === month))
-      return [...without, next].sort((a, b) => a.year - b.year || a.month - b.month)
+      const without = prev.filter(
+        (item) =>
+          !(
+            item.apartmentId === currentApartment.id &&
+            item.year === year &&
+            item.month === month
+          ),
+      )
+      return [...without, next].sort(
+        (a, b) => a.apartmentId.localeCompare(b.apartmentId) || a.year - b.year || a.month - b.month,
+      )
     })
     setError('')
   }
 
   function onDelete() {
-    setEntries((prev) => prev.filter((item) => !(item.year === year && item.month === month)))
+    if (!currentApartment) return
+    setEntries((prev) =>
+      prev.filter(
+        (item) =>
+          !(
+            item.apartmentId === currentApartment.id &&
+            item.year === year &&
+            item.month === month
+          ),
+      ),
+    )
     setGross('')
     setMaintenance('')
     setCleaning('')
@@ -228,28 +283,87 @@ export default function App() {
     owner: row.entry ? row.owner : null,
   }))
 
-  const existing = entries.some((e) => e.year === year && e.month === month)
+  const existing = currentEntries.some((e) => e.year === year && e.month === month)
+
+  function switchApartment(id: string) {
+    setActiveId(id)
+    setNameMode('idle')
+    const found = entries.find(
+      (e) => e.apartmentId === id && e.year === year && e.month === month,
+    )
+    setError('')
+    if (!found) {
+      setGross('')
+      setMaintenance('')
+      setCleaning('')
+      setTaxPercent('')
+      setAgentPercent('')
+      return
+    }
+    setGross(String(found.gross))
+    setMaintenance(String(found.maintenance))
+    setCleaning(String(found.cleaning))
+    setTaxPercent(String(found.taxPercent))
+    setTaxBase(found.taxBase)
+    setAgentPercent(String(found.agentPercent))
+    setAgentBase(found.agentBase)
+  }
+
+  function submitApartmentName() {
+    const name = nameDraft.trim()
+    if (!name) {
+      setError('Укажите название квартиры')
+      return
+    }
+    if (nameMode === 'add') {
+      const created = { id: newApartmentId(), name }
+      setApartments((prev) => [...prev, created])
+      switchApartment(created.id)
+    }
+    if (nameMode === 'rename' && currentApartment) {
+      setApartments((prev) =>
+        prev.map((item) => (item.id === currentApartment.id ? { ...item, name } : item)),
+      )
+    }
+    setNameMode('idle')
+    setNameDraft('')
+    setError('')
+  }
+
+  function deleteApartment() {
+    if (!currentApartment || apartments.length < 2) {
+      setError('Должна остаться хотя бы одна квартира')
+      return
+    }
+    const removedId = currentApartment.id
+    const nextList = apartments.filter((item) => item.id !== removedId)
+    setApartments(nextList)
+    setEntries((prev) => prev.filter((item) => item.apartmentId !== removedId))
+    switchApartment(nextList[0].id)
+  }
+
+  const filePrefix = `bookingroom-${fileSlug(currentApartment?.name ?? 'kvartira')}-${year}`
 
   function exportJson() {
     downloadTextFile(
-      `bookingroom-${year}.json`,
-      entriesToJson(entries),
+      `${filePrefix}.json`,
+      stateToJson({ apartments, activeApartmentId: activeId, entries }),
       'application/json',
     )
   }
 
   function exportCsv() {
     downloadTextFile(
-      `bookingroom-${year}.csv`,
-      entriesToCsv(entries),
+      `${filePrefix}.csv`,
+      entriesToCsv(currentEntries, currentApartment?.name ?? 'Квартира'),
       'text/csv;charset=utf-8',
     )
   }
 
   function exportXls() {
     downloadTextFile(
-      `bookingroom-${year}.xls`,
-      entriesToXls(entries),
+      `${filePrefix}.xls`,
+      entriesToXls(currentEntries, currentApartment?.name ?? 'Квартира'),
       'application/vnd.ms-excel',
     )
   }
@@ -258,8 +372,31 @@ export default function App() {
     const reader = new FileReader()
     reader.onload = () => {
       try {
-        const imported = parseImportedEntries(String(reader.result ?? ''))
-        setEntries(imported)
+        const imported = parseImportedState(String(reader.result ?? ''))
+        setApartments(imported.apartments)
+        setActiveId(imported.activeApartmentId)
+        setEntries(imported.entries)
+        const found = imported.entries.find(
+          (item) =>
+            item.apartmentId === imported.activeApartmentId &&
+            item.year === year &&
+            item.month === month,
+        )
+        if (found) {
+          setGross(String(found.gross))
+          setMaintenance(String(found.maintenance))
+          setCleaning(String(found.cleaning))
+          setTaxPercent(String(found.taxPercent))
+          setTaxBase(found.taxBase)
+          setAgentPercent(String(found.agentPercent))
+          setAgentBase(found.agentBase)
+        } else {
+          setGross('')
+          setMaintenance('')
+          setCleaning('')
+          setTaxPercent('')
+          setAgentPercent('')
+        }
         setError('')
       } catch {
         setError('Не удалось прочитать файл импорта')
@@ -292,8 +429,8 @@ export default function App() {
         <div>
           <h1>BookingRoom</h1>
           <p>
-            Учёт аренды по месяцам. Записи хранятся в базе браузера; при работе на домашнем
-            компьютере дублируются в файл SQLite.
+            Учёт аренды по нескольким квартирам. Журнал, график и CSV/Excel — по выбранному
+            объекту; JSON сохраняет все квартиры сразу.
           </p>
         </div>
         <div className="top-actions">
@@ -336,11 +473,89 @@ export default function App() {
         </div>
       </header>
 
+      {currentApartment ? (
+        <section className="apartment-bar">
+          <label>
+            Квартира
+            <select
+              value={currentApartment.id}
+              onChange={(e) => switchApartment(e.target.value)}
+            >
+              {apartments.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {nameMode === 'idle' ? (
+            <div className="apartment-actions">
+              <button
+                type="button"
+                className="pill"
+                onClick={() => {
+                  setNameMode('add')
+                  setNameDraft('')
+                }}
+              >
+                + Квартира
+              </button>
+              <button
+                type="button"
+                className="pill"
+                onClick={() => {
+                  setNameMode('rename')
+                  setNameDraft(currentApartment.name)
+                }}
+              >
+                Переименовать
+              </button>
+              <button
+                type="button"
+                className="pill"
+                onClick={deleteApartment}
+                disabled={apartments.length < 2}
+              >
+                Удалить квартиру
+              </button>
+            </div>
+          ) : (
+            <form
+              className="apartment-edit"
+              onSubmit={(e) => {
+                e.preventDefault()
+                submitApartmentName()
+              }}
+            >
+              <input
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                placeholder="Название квартиры"
+                autoFocus
+              />
+              <button type="submit" className="btn btn-primary">
+                Сохранить
+              </button>
+              <button
+                type="button"
+                className="pill"
+                onClick={() => {
+                  setNameMode('idle')
+                  setNameDraft('')
+                }}
+              >
+                Отмена
+              </button>
+            </form>
+          )}
+        </section>
+      ) : null}
+
       <section className="summary">
         <article className="kpi">
           <span>Поступления</span>
           <strong>{formatMoney(totals.gross)}</strong>
-          <small>Валовый доход за {year}</small>
+          <small>Валовый доход за {year}, {currentApartment?.name}</small>
         </article>
         <article className="kpi">
           <span>Обслуживание</span>
@@ -382,8 +597,9 @@ export default function App() {
       </nav>
 
       <div className="note">
-        За {year} учтено <b>{filledCount}</b> из 12 месяцев. Удержания за год —{' '}
-        <b>{formatMoney(deductions)}</b>, к выплате — <b>{formatMoney(totals.owner)}</b>.
+        За {year} по объекту <b>{currentApartment?.name}</b> учтено <b>{filledCount}</b> из 12
+        месяцев. Удержания за год — <b>{formatMoney(deductions)}</b>, к выплате —{' '}
+        <b>{formatMoney(totals.owner)}</b>.
       </div>
 
       {tab === 'journal' ? (
@@ -393,7 +609,7 @@ export default function App() {
               <div className="card-head">
                 <div>
                   <h2>Запись месяца</h2>
-                  <p>Обязательные поля и автоматический расчёт к выплате</p>
+                  <p>{currentApartment?.name}: обязательные поля и расчёт к выплате</p>
                 </div>
               </div>
               <label>

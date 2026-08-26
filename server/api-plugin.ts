@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
-import { getEntries, setEntries } from './db.ts'
+import { getState, setState } from './db.ts'
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -21,18 +21,18 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
 
 async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = req.url?.split('?')[0] ?? ''
-  if (url !== '/api/entries') return false
+  if (url !== '/api/state' && url !== '/api/entries') return false
 
   if (req.method === 'GET') {
-    sendJson(res, 200, { entries: await getEntries() })
+    sendJson(res, 200, await getState())
     return true
   }
 
   if (req.method === 'PUT') {
     try {
-      const body = JSON.parse((await readBody(req)) || '[]') as unknown
-      const entries = await setEntries(body)
-      sendJson(res, 200, { entries })
+      const body = JSON.parse((await readBody(req)) || '{}') as unknown
+      const state = await setState(body)
+      sendJson(res, 200, state)
     } catch {
       sendJson(res, 400, { error: 'Некорректные данные' })
     }

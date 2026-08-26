@@ -3,6 +3,7 @@ import path from 'node:path'
 import { createRequire } from 'node:module'
 import initSqlJs, { type Database, type SqlJsStatic } from 'sql.js'
 import { normalizeEntry, type MonthEntry } from '../src/lib/finance.ts'
+import { emptyState, normalizeState, type AppState } from '../src/lib/state.ts'
 
 const require = createRequire(import.meta.url)
 const wasmPath = path.join(path.dirname(require.resolve('sql.js')), 'sql-wasm.wasm')
@@ -14,56 +15,18 @@ fs.mkdirSync(dataDir, { recursive: true })
 let SQL: SqlJsStatic | null = null
 let db: Database | null = null
 
-async function getDb(): Promise<Database> {
-  if (db) return db
-  SQL ??= await initSqlJs({ locateFile: () => wasmPath })
-  if (fs.existsSync(dbPath)) {
-    db = new SQL.Database(fs.readFileSync(dbPath))
-  } else {
-    db = new SQL.Database()
-  }
-  db.run(`
-    CREATE TABLE IF NOT EXISTS month_entries (
-      year INTEGER NOT NULL,
-      month INTEGER NOT NULL,
-      gross REAL NOT NULL,
-      maintenance REAL NOT NULL DEFAULT 0,
-      cleaning REAL NOT NULL,
-      tax_percent REAL NOT NULL,
-      tax_base TEXT NOT NULL CHECK (tax_base IN ('gross', 'net')),
-      agent_percent REAL NOT NULL,
-      agent_base TEXT NOT NULL CHECK (agent_base IN ('gross', 'net')),
-      PRIMARY KEY (year, month)
-    );
-  `)
-  ensureColumn(db, 'maintenance')
-  persist()
-  return db
-}
-
-function persist(): void {
-  if (!db) return
-  fs.writeFileSync(dbPath, Buffer.from(db.export()))
-}
-
-function ensureColumn(database: Database, name: string): void {
-  const stmt = database.prepare('PRAGMA table_info(month_entries)')
-  let exists = false
-  while (stmt.step()) {
-    const row = stmt.getAsObject()
-    if (row.name === name) {
-      exists = true
-      break
-    }
-  }
+function tableExists(database: Database, name: string): boolean {
+  const stmt = database.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+  )
+  stmt.bind([name])
+  const exists = stmt.step()
   stmt.free()
-  if (!exists) {
-    database.run(`ALTER TABLE month_entries ADD COLUMN ${name} REAL NOT NULL DEFAULT 0`)
-  }
+  return exists
 }
 
-export async function getEntries(): Promise<MonthEntry[]> {
-  const database = await getDb()
+function migrateLegacyEntries(database: Database): MonthEntry[] {
+  if (!tableExists(database, 'month_entries')) return []
   const stmt = database.prepare(`
     SELECT
       year,
@@ -98,31 +61,51 @@ export async function getEntries(): Promise<MonthEntry[]> {
   return rows
 }
 
-export async function setEntries(raw: unknown): Promise<MonthEntry[]> {
-  const database = await getDb()
-  const list = Array.isArray(raw) ? raw : []
-  const entries = list.map(normalizeEntry).filter((e): e is MonthEntry => e !== null)
-
-  database.run('DELETE FROM month_entries')
-  const stmt = database.prepare(`
-    INSERT INTO month_entries (
-      year, month, gross, maintenance, cleaning, tax_percent, tax_base, agent_percent, agent_base
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+async function getDb(): Promise<Database> {
+  if (db) return db
+  SQL ??= await initSqlJs({ locateFile: () => wasmPath })
+  if (fs.existsSync(dbPath)) {
+    db = new SQL.Database(fs.readFileSync(dbPath))
+  } else {
+    db = new SQL.Database()
+  }
+  db.run(`
+    CREATE TABLE IF NOT EXISTS app_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      payload TEXT NOT NULL
+    );
   `)
-  for (const entry of entries) {
-    stmt.run([
-      entry.year,
-      entry.month,
-      entry.gross,
-      entry.maintenance,
-      entry.cleaning,
-      entry.taxPercent,
-      entry.taxBase,
-      entry.agentPercent,
-      entry.agentBase,
-    ])
+  persist()
+  return db
+}
+
+function persist(): void {
+  if (!db) return
+  fs.writeFileSync(dbPath, Buffer.from(db.export()))
+}
+
+export async function getState(): Promise<AppState> {
+  const database = await getDb()
+  const stmt = database.prepare('SELECT payload FROM app_state WHERE id = 1')
+  if (stmt.step()) {
+    const payload = stmt.getAsObject().payload
+    stmt.free()
+    return normalizeState(JSON.parse(String(payload)))
   }
   stmt.free()
+
+  const legacy = migrateLegacyEntries(database)
+  if (legacy.length === 0) return emptyState()
+  const migrated = normalizeState({ entries: legacy })
+  await setState(migrated)
+  return migrated
+}
+
+export async function setState(raw: unknown): Promise<AppState> {
+  const database = await getDb()
+  const state = normalizeState(raw)
+  database.run('DELETE FROM app_state')
+  database.run('INSERT INTO app_state (id, payload) VALUES (1, ?)', [JSON.stringify(state)])
   persist()
-  return entries
+  return state
 }

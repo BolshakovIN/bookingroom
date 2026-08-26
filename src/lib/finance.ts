@@ -1,3 +1,17 @@
+export type Apartment = {
+  id: string
+  name: string
+}
+
+export const DEFAULT_APARTMENT: Apartment = {
+  id: 'default',
+  name: 'Квартира 1',
+}
+
+export function newApartmentId(): string {
+  return crypto.randomUUID()
+}
+
 export type RateBase = 'gross' | 'net'
 
 export function isRateBase(value: unknown): value is RateBase {
@@ -19,9 +33,14 @@ export function normalizeEntry(value: unknown): MonthEntry | null {
 
   const maintenance = typeof e.maintenance === 'number' ? e.maintenance : 0
   const agentBase: RateBase = isRateBase(e.agentBase) ? e.agentBase : 'gross'
+  const apartmentId =
+    typeof e.apartmentId === 'string' && e.apartmentId.trim()
+      ? e.apartmentId
+      : DEFAULT_APARTMENT.id
 
   if (typeof e.taxPercent === 'number' && isRateBase(e.taxBase)) {
     return {
+      apartmentId,
       year: e.year,
       month: e.month,
       gross: e.gross,
@@ -37,6 +56,7 @@ export function normalizeEntry(value: unknown): MonthEntry | null {
   if (typeof e.tax === 'number') {
     const taxPercent = e.gross > 0 ? roundMoney((e.tax / e.gross) * 100) : 0
     return {
+      apartmentId,
       year: e.year,
       month: e.month,
       gross: e.gross,
@@ -53,6 +73,7 @@ export function normalizeEntry(value: unknown): MonthEntry | null {
 }
 
 export type MonthEntry = {
+  apartmentId: string
   year: number
   month: number
   gross: number

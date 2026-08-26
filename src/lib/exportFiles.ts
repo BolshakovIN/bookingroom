@@ -6,6 +6,7 @@ import {
 } from './finance'
 
 export type ExportRow = {
+  apartment: string
   year: number
   month: string
   gross: number
@@ -21,6 +22,7 @@ export type ExportRow = {
 }
 
 const HEADERS = [
+  'Квартира',
   'Год',
   'Месяц',
   'Поступления',
@@ -35,12 +37,16 @@ const HEADERS = [
   'К выплате',
 ] as const
 
-export function toExportRows(entries: MonthEntry[]): ExportRow[] {
+export function toExportRows(
+  entries: MonthEntry[],
+  apartmentName: string,
+): ExportRow[] {
   return [...entries]
     .sort((a, b) => a.year - b.year || a.month - b.month)
     .map((entry) => {
       const totals = calcTotals(entry)
       return {
+        apartment: apartmentName,
         year: entry.year,
         month: MONTHS[entry.month - 1] ?? String(entry.month),
         gross: entry.gross,
@@ -59,6 +65,7 @@ export function toExportRows(entries: MonthEntry[]): ExportRow[] {
 
 function rowValues(row: ExportRow): (string | number)[] {
   return [
+    row.apartment,
     row.year,
     row.month,
     row.gross,
@@ -79,10 +86,12 @@ function csvCell(value: string | number): string {
   return `"${text}"`
 }
 
-export function entriesToCsv(entries: MonthEntry[]): string {
+export function entriesToCsv(entries: MonthEntry[], apartmentName: string): string {
   const lines = [
     HEADERS.map(csvCell).join(';'),
-    ...toExportRows(entries).map((row) => rowValues(row).map(csvCell).join(';')),
+    ...toExportRows(entries, apartmentName).map((row) =>
+      rowValues(row).map(csvCell).join(';'),
+    ),
   ]
   return `\uFEFF${lines.join('\r\n')}`
 }
@@ -102,9 +111,9 @@ function xlsCell(value: string | number): string {
   return `<Cell><Data ss:Type="String">${xmlEscape(value)}</Data></Cell>`
 }
 
-export function entriesToXls(entries: MonthEntry[]): string {
+export function entriesToXls(entries: MonthEntry[], apartmentName: string): string {
   const header = `<Row>${HEADERS.map((h) => xlsCell(h)).join('')}</Row>`
-  const body = toExportRows(entries)
+  const body = toExportRows(entries, apartmentName)
     .map((row) => `<Row>${rowValues(row).map(xlsCell).join('')}</Row>`)
     .join('')
 

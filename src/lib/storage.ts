@@ -1,10 +1,10 @@
-import type { MonthEntry } from './finance'
-import { normalizeEntry } from './finance'
+import { normalizeState, type AppState } from './state'
 
 const LOCAL_KEY = 'bookingroom.finance.v1'
 const IDB_NAME = 'bookingroom'
 const IDB_STORE = 'kv'
-const IDB_KEY = 'entries'
+const IDB_STATE = 'state'
+const IDB_ENTRIES = 'entries'
 
 function isPrivateHost(): boolean {
   const host = window.location.hostname
@@ -16,11 +16,6 @@ function isPrivateHost(): boolean {
     /^10\./.test(host) ||
     /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
   )
-}
-
-function parseList(value: unknown): MonthEntry[] {
-  if (!Array.isArray(value)) return []
-  return value.map(normalizeEntry).filter((e): e is MonthEntry => e !== null)
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -37,90 +32,97 @@ function openDb(): Promise<IDBDatabase> {
   })
 }
 
-async function readIdb(): Promise<MonthEntry[]> {
-  const db = await openDb()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE, 'readonly')
-    const request = tx.objectStore(IDB_STORE).get(IDB_KEY)
-    request.onsuccess = () => resolve(parseList(request.result))
-    request.onerror = () => reject(request.error)
-  })
+function idbGet(key: string): Promise<unknown> {
+  return openDb().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(IDB_STORE, 'readonly')
+        const request = tx.objectStore(IDB_STORE).get(key)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      }),
+  )
 }
 
-async function writeIdb(entries: MonthEntry[]): Promise<void> {
+async function writeIdb(state: AppState): Promise<void> {
   const db = await openDb()
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readwrite')
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
-    tx.objectStore(IDB_STORE).put(entries, IDB_KEY)
+    tx.objectStore(IDB_STORE).put(state, IDB_STATE)
   })
 }
 
-function readLocalEntries(): MonthEntry[] {
+function readLocalState(): AppState | null {
   try {
     const raw = localStorage.getItem(LOCAL_KEY)
-    if (!raw) return []
-    return parseList(JSON.parse(raw) as unknown)
+    if (!raw) return null
+    return normalizeState(JSON.parse(raw) as unknown)
   } catch {
-    return []
+    return null
   }
 }
 
-async function readServerEntries(): Promise<MonthEntry[]> {
-  if (!isPrivateHost()) return []
+async function readServerState(): Promise<AppState | null> {
+  if (!isPrivateHost()) return null
   try {
-    const response = await fetch('/api/entries')
-    if (!response.ok) return []
-    const payload = (await response.json()) as { entries?: unknown }
-    return parseList(payload.entries)
+    const response = await fetch('/api/state')
+    if (!response.ok) return null
+    return normalizeState(await response.json())
   } catch {
-    return []
+    return null
   }
 }
 
-export async function loadEntries(): Promise<MonthEntry[]> {
-  const idb = await readIdb()
-  if (idb.length > 0) return idb
+export async function loadState(): Promise<AppState> {
+  const fromState = await idbGet(IDB_STATE)
+  if (fromState) return normalizeState(fromState)
 
-  const local = readLocalEntries()
-  if (local.length > 0) {
+  const fromEntries = await idbGet(IDB_ENTRIES)
+  if (fromEntries) return normalizeState(fromEntries)
+
+  const local = readLocalState()
+  if (local && (local.entries.length > 0 || local.apartments.length > 1)) {
     await writeIdb(local)
     return local
   }
 
-  const remote = await readServerEntries()
-  if (remote.length > 0) {
+  const remote = await readServerState()
+  if (remote && (remote.entries.length > 0 || remote.apartments.length > 1)) {
     await writeIdb(remote)
     return remote
   }
 
-  return []
+  return local ?? remote ?? normalizeState(null)
 }
 
-export async function saveEntries(entries: MonthEntry[]): Promise<void> {
-  await writeIdb(entries)
+export async function saveState(state: AppState): Promise<void> {
+  const normalized = normalizeState(state)
+  await writeIdb(normalized)
   try {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(entries))
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized))
   } catch {
     // quota
   }
   if (!isPrivateHost()) return
   try {
-    await fetch('/api/entries', {
+    await fetch('/api/state', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(entries),
+      body: JSON.stringify(normalized),
     })
   } catch {
     // local sqlite is optional
   }
 }
 
-export function entriesToJson(entries: MonthEntry[]): string {
-  return JSON.stringify(entries, null, 2)
+export function stateToJson(state: AppState): string {
+  return JSON.stringify(normalizeState(state), null, 2)
 }
 
-export function parseImportedEntries(text: string): MonthEntry[] {
-  return parseList(JSON.parse(text) as unknown)
+export function parseImportedState(text: string): AppState {
+  return normalizeState(JSON.parse(text) as unknown)
 }
+
+export type { AppState }
