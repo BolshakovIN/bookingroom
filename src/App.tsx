@@ -21,6 +21,7 @@ import {
   type RateBase,
 } from './lib/finance'
 import { loadEntries, saveEntries, entriesToJson, parseImportedEntries } from './lib/storage'
+import { downloadTextFile, entriesToCsv, entriesToXls } from './lib/exportFiles'
 
 type MetricKey = 'gross' | 'maintenance' | 'cleaning' | 'tax' | 'agentFee' | 'owner'
 type Tab = 'journal' | 'chart'
@@ -229,14 +230,28 @@ export default function App() {
 
   const existing = entries.some((e) => e.year === year && e.month === month)
 
-  function exportEntries() {
-    const blob = new Blob([entriesToJson(entries)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `bookingroom-${year}.json`
-    link.click()
-    URL.revokeObjectURL(url)
+  function exportJson() {
+    downloadTextFile(
+      `bookingroom-${year}.json`,
+      entriesToJson(entries),
+      'application/json',
+    )
+  }
+
+  function exportCsv() {
+    downloadTextFile(
+      `bookingroom-${year}.csv`,
+      entriesToCsv(entries),
+      'text/csv;charset=utf-8',
+    )
+  }
+
+  function exportXls() {
+    downloadTextFile(
+      `bookingroom-${year}.xls`,
+      entriesToXls(entries),
+      'application/vnd.ms-excel',
+    )
   }
 
   function onImportFile(file: File) {
@@ -277,13 +292,19 @@ export default function App() {
         <div>
           <h1>BookingRoom</h1>
           <p>
-            Учёт аренды по месяцам. Данные каждого человека хранятся в его браузере, а не в общей
-            базе.
+            Учёт аренды по месяцам. Записи хранятся в базе браузера; при работе на домашнем
+            компьютере дублируются в файл SQLite.
           </p>
         </div>
         <div className="top-actions">
-          <button type="button" className="pill" onClick={exportEntries}>
-            Экспорт
+          <button type="button" className="pill" onClick={exportCsv}>
+            CSV
+          </button>
+          <button type="button" className="pill" onClick={exportXls}>
+            Excel
+          </button>
+          <button type="button" className="pill" onClick={exportJson}>
+            JSON
           </button>
           <button type="button" className="pill" onClick={() => importRef.current?.click()}>
             Импорт

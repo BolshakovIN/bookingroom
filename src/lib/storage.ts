@@ -105,6 +105,16 @@ export async function saveEntries(entries: MonthEntry[]): Promise<void> {
   } catch {
     // quota
   }
+  if (!isPrivateHost()) return
+  try {
+    await fetch('/api/entries', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entries),
+    })
+  } catch {
+    // local sqlite is optional
+  }
 }
 
 export function entriesToJson(entries: MonthEntry[]): string {
