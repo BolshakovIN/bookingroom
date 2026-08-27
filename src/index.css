@@ -75,6 +75,33 @@ select {
   max-width: 520px;
 }
 
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mode-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+}
+
+.mode-tag.cloud {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.mode-tag.local {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
 .apartment-bar {
   display: flex;
   flex-wrap: wrap;

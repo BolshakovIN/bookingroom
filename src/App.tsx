@@ -470,12 +470,20 @@ export default function App() {
     <div className="page">
       <header className="top">
         <div>
-          <h1>BookingRoom</h1>
-          <p>
-            {syncMode === 'remote'
-              ? 'Общая база на сервере: записи одинаковые с любого компьютера.'
-              : 'Учёт аренды по нескольким квартирам. Журнал, график и CSV/Excel — по выбранному объекту; JSON сохраняет все квартиры сразу.'}
-          </p>
+          <h1 className="brand">
+            BookingRoom
+            <span
+              className={`mode-tag ${syncMode === 'remote' ? 'cloud' : 'local'}`}
+              title={
+                syncMode === 'remote'
+                  ? 'Общая база на сервере: записи одинаковые с любого компьютера'
+                  : 'Данные только в этом браузере'
+              }
+            >
+              {syncMode === 'remote' ? 'Облако' : 'Локалка'}
+            </span>
+          </h1>
+          <p>Учёт аренды по нескольким квартирам. Журнал, график и CSV/Excel — по выбранному объекту; JSON сохраняет все квартиры сразу.</p>
         </div>
         <div className="top-actions">
           <button type="button" className="pill" onClick={exportCsv}>
