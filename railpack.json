@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.railpack.com/config.schema.json",
   "deploy": {
-    "startCommand": "node --import tsx server/listen.ts"
+    "startCommand": "node server/prod.mjs"
   }
 }

@@ -5,7 +5,7 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
-    "startCommand": "node --import tsx server/listen.ts",
+    "startCommand": "node server/prod.mjs",
     "healthcheckPath": "/api/health",
     "restartPolicyType": "ON_FAILURE"
   }

@@ -5,4 +5,4 @@ cmds = ["npm ci --include=dev"]
 cmds = ["npm run build"]
 
 [start]
-cmd = "node --import tsx server/listen.ts"
+cmd = "node server/prod.mjs"

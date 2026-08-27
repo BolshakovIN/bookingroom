@@ -4,7 +4,7 @@ import path from 'node:path'
 import { handleApi } from './api.ts'
 
 const distDir = path.join(process.cwd(), 'dist')
-const port = Number(process.env.PORT) || 3000
+const port = Number(process.env.PORT) || 8080
 
 const MIME: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -61,7 +61,7 @@ const server = http.createServer((req, res) => {
   })()
 })
 
-server.listen(port, () => {
+server.listen(port, '0.0.0.0', () => {
   const password = process.env.APP_PASSWORD?.trim()
   if (!password) {
     console.warn('APP_PASSWORD is empty: anyone with the URL can read and overwrite the ledger')
