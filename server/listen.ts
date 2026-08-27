@@ -61,7 +61,7 @@ const server = http.createServer((req, res) => {
   })()
 })
 
-server.listen(port, '0.0.0.0', () => {
+server.listen({ port, host: '::', ipv6Only: false }, () => {
   const password = process.env.APP_PASSWORD?.trim()
   if (!password) {
     console.warn('APP_PASSWORD is empty: anyone with the URL can read and overwrite the ledger')

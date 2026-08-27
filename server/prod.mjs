@@ -192,6 +192,6 @@ const server = http.createServer((req, res) => {
   })
 })
 
-server.listen(port, '0.0.0.0', () => {
-  console.log(`BookingRoom listening on 0.0.0.0:${port}`)
+server.listen({ port, host: '::', ipv6Only: false }, () => {
+  console.log(`BookingRoom listening on ::${port} (PORT=${process.env.PORT || ''})`)
 })
