@@ -1,0 +1,6 @@
+{
+  "$schema": "https://schema.railpack.com/config.schema.json",
+  "deploy": {
+    "startCommand": "npx tsx server/listen.ts"
+  }
+}
