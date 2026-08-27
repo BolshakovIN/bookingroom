@@ -64,15 +64,9 @@ select {
 .top {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 16px;
   margin-bottom: 22px;
-}
-
-.top p {
-  margin: 6px 0 0;
-  color: var(--mute);
-  max-width: 520px;
 }
 
 .brand {
@@ -105,13 +99,53 @@ select {
 .apartment-bar {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 12px;
+  align-items: center;
+  gap: 14px;
   background: var(--card);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 14px 16px;
+  padding: 16px 18px;
   margin-bottom: 16px;
+}
+
+.apartment-current {
+  display: grid;
+  gap: 2px;
+  min-width: 180px;
+}
+
+.apartment-current span {
+  font-size: 0.78rem;
+  color: var(--mute);
+  font-weight: 500;
+}
+
+.apartment-current strong {
+  font-size: 1.25rem;
+  letter-spacing: -0.03em;
+}
+
+.apartment-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 1;
+}
+
+.apartment-pill {
+  border: 1px solid var(--line);
+  background: #f8fafc;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.apartment-pill.active {
+  background: var(--blue-soft);
+  border-color: #bfdbfe;
+  color: var(--blue);
+  font-weight: 700;
 }
 
 .apartment-bar label {

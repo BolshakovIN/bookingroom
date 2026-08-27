@@ -483,7 +483,6 @@ export default function App() {
               {syncMode === 'remote' ? 'Облако' : 'Локалка'}
             </span>
           </h1>
-          <p>Учёт аренды по нескольким квартирам. Журнал, график и CSV/Excel — по выбранному объекту; JSON сохраняет все квартиры сразу.</p>
         </div>
         <div className="top-actions">
           <button type="button" className="pill" onClick={exportCsv}>
@@ -527,19 +526,24 @@ export default function App() {
 
       {currentApartment ? (
         <section className="apartment-bar">
-          <label>
-            Квартира
-            <select
-              value={currentApartment.id}
-              onChange={(e) => switchApartment(e.target.value)}
-            >
-              {apartments.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="apartment-current">
+            <span>Сейчас выбрана</span>
+            <strong>{currentApartment.name}</strong>
+          </div>
+          <div className="apartment-pills" role="tablist" aria-label="Квартиры">
+            {apartments.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={item.id === currentApartment.id}
+                className={`apartment-pill${item.id === currentApartment.id ? ' active' : ''}`}
+                onClick={() => switchApartment(item.id)}
+              >
+                {item.name}
+              </button>
+            ))}
+          </div>
           {nameMode === 'idle' ? (
             <div className="apartment-actions">
               <button
