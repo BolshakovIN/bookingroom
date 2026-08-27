@@ -5,17 +5,47 @@ const IDB_NAME = 'bookingroom'
 const IDB_STORE = 'kv'
 const IDB_STATE = 'state'
 const IDB_ENTRIES = 'entries'
+const AUTH_KEY = 'bookingroom.auth'
 
-function isPrivateHost(): boolean {
-  const host = window.location.hostname
-  return (
-    host === 'localhost' ||
-    host === '127.0.0.1' ||
-    host === '::1' ||
-    /^192\.168\./.test(host) ||
-    /^10\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
-  )
+export class AuthRequiredError extends Error {
+  constructor() {
+    super('Нужен пароль')
+    this.name = 'AuthRequiredError'
+  }
+}
+
+export type SyncMode = 'remote' | 'local'
+
+let syncMode: SyncMode = 'local'
+
+export function getSyncMode(): SyncMode {
+  return syncMode
+}
+
+export function getAuthPassword(): string {
+  try {
+    return sessionStorage.getItem(AUTH_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function setAuthPassword(value: string): void {
+  try {
+    if (value) sessionStorage.setItem(AUTH_KEY, value)
+    else sessionStorage.removeItem(AUTH_KEY)
+  } catch {
+    // private mode
+  }
+}
+
+function authHeaders(): HeadersInit {
+  const password = getAuthPassword()
+  return password ? { 'X-Booking-Key': password } : {}
+}
+
+function isPopulated(state: AppState): boolean {
+  return state.entries.length > 0 || state.apartments.length > 1
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -64,57 +94,76 @@ function readLocalState(): AppState | null {
   }
 }
 
-async function readServerState(): Promise<AppState | null> {
-  if (!isPrivateHost()) return null
+async function probeRemote(): Promise<boolean> {
   try {
-    const response = await fetch('/api/state')
-    if (!response.ok) return null
-    return normalizeState(await response.json())
+    const response = await fetch('/api/health')
+    if (!response.ok) return false
+    const payload = (await response.json()) as { ok?: unknown }
+    return payload.ok === true
   } catch {
-    return null
+    return false
   }
 }
 
-export async function loadState(): Promise<AppState> {
+async function readLocalFallback(): Promise<AppState> {
   const fromState = await idbGet(IDB_STATE)
   if (fromState) return normalizeState(fromState)
 
   const fromEntries = await idbGet(IDB_ENTRIES)
   if (fromEntries) return normalizeState(fromEntries)
 
-  const local = readLocalState()
-  if (local && (local.entries.length > 0 || local.apartments.length > 1)) {
-    await writeIdb(local)
-    return local
+  return readLocalState() ?? normalizeState(null)
+}
+
+async function cacheLocal(state: AppState): Promise<void> {
+  await writeIdb(state)
+  try {
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(state))
+  } catch {
+    // quota
+  }
+}
+
+export async function loadState(): Promise<AppState> {
+  const remote = await probeRemote()
+  syncMode = remote ? 'remote' : 'local'
+
+  if (remote) {
+    const response = await fetch('/api/state', { headers: authHeaders() })
+    if (response.status === 401) throw new AuthRequiredError()
+    if (!response.ok) throw new Error('Не удалось открыть общую базу')
+    const serverState = normalizeState(await response.json())
+    const local = await readLocalFallback()
+    if (!isPopulated(serverState) && isPopulated(local)) {
+      await putRemote(local)
+      await cacheLocal(local)
+      return local
+    }
+    await cacheLocal(serverState)
+    return serverState
   }
 
-  const remote = await readServerState()
-  if (remote && (remote.entries.length > 0 || remote.apartments.length > 1)) {
-    await writeIdb(remote)
-    return remote
-  }
+  return readLocalFallback()
+}
 
-  return local ?? remote ?? normalizeState(null)
+async function putRemote(state: AppState): Promise<void> {
+  const response = await fetch('/api/state', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify(state),
+  })
+  if (response.status === 401) throw new AuthRequiredError()
+  if (!response.ok) throw new Error('Не удалось сохранить в общую базу')
 }
 
 export async function saveState(state: AppState): Promise<void> {
   const normalized = normalizeState(state)
-  await writeIdb(normalized)
-  try {
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(normalized))
-  } catch {
-    // quota
-  }
-  if (!isPrivateHost()) return
-  try {
-    await fetch('/api/state', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(normalized),
-    })
-  } catch {
-    // local sqlite is optional
-  }
+  await cacheLocal(normalized)
+  if (syncMode !== 'remote') return
+  await putRemote(normalized)
 }
 
 export function stateToJson(state: AppState): string {

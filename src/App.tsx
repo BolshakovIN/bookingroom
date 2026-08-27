@@ -22,7 +22,7 @@ import {
   type MonthEntry,
   type RateBase,
 } from './lib/finance'
-import { loadState, saveState, stateToJson, parseImportedState } from './lib/storage'
+import { loadState, saveState, stateToJson, parseImportedState, AuthRequiredError, getSyncMode, setAuthPassword } from './lib/storage'
 import { fileSlug } from './lib/state'
 import { downloadTextFile, entriesToCsv, entriesToXls } from './lib/exportFiles'
 
@@ -56,6 +56,10 @@ export default function App() {
   const [nameMode, setNameMode] = useState<'idle' | 'add' | 'rename'>('idle')
   const [nameDraft, setNameDraft] = useState('')
   const [ready, setReady] = useState(false)
+  const [authGate, setAuthGate] = useState(false)
+  const [passwordDraft, setPasswordDraft] = useState('')
+  const [bootNonce, setBootNonce] = useState(0)
+  const [syncMode, setSyncMode] = useState<'remote' | 'local'>('local')
   const [loadError, setLoadError] = useState('')
   const [year, setYear] = useState(currentYear)
   const [month, setMonth] = useState(currentMonth)
@@ -102,15 +106,23 @@ export default function App() {
           setAgentPercent(String(found.agentPercent))
           setAgentBase(found.agentBase)
         }
+        setSyncMode(getSyncMode())
+        setAuthGate(false)
         setReady(true)
-      } catch {
-        if (!cancelled) setLoadError('Не удалось открыть базу данных')
+      } catch (err) {
+        if (cancelled) return
+        if (err instanceof AuthRequiredError) {
+          setAuthGate(true)
+          if (bootNonce > 0) setError('Неверный пароль')
+          return
+        }
+        setLoadError('Не удалось открыть базу данных')
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [bootNonce])
 
   useEffect(() => {
     if (!ready) return
@@ -405,6 +417,37 @@ export default function App() {
     reader.readAsText(file)
   }
 
+  if (authGate) {
+    return (
+      <div className="page">
+        <section className="gate">
+          <h1>BookingRoom</h1>
+          <p>Введите пароль общей базы. Он задаётся на сервере в переменной APP_PASSWORD.</p>
+          {error ? <p className="error">{error}</p> : null}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              setAuthPassword(passwordDraft.trim())
+              setError('')
+              setBootNonce((n) => n + 1)
+            }}
+          >
+            <input
+              type="password"
+              value={passwordDraft}
+              onChange={(e) => setPasswordDraft(e.target.value)}
+              placeholder="Пароль"
+              autoFocus
+            />
+            <button type="submit" className="btn btn-primary">
+              Войти
+            </button>
+          </form>
+        </section>
+      </div>
+    )
+  }
+
   if (loadError) {
     return (
       <div className="page">
@@ -429,8 +472,9 @@ export default function App() {
         <div>
           <h1>BookingRoom</h1>
           <p>
-            Учёт аренды по нескольким квартирам. Журнал, график и CSV/Excel — по выбранному
-            объекту; JSON сохраняет все квартиры сразу.
+            {syncMode === 'remote'
+              ? 'Общая база на сервере: записи одинаковые с любого компьютера.'
+              : 'Учёт аренды по нескольким квартирам. Журнал, график и CSV/Excel — по выбранному объекту; JSON сохраняет все квартиры сразу.'}
           </p>
         </div>
         <div className="top-actions">

@@ -7,10 +7,18 @@ import { emptyState, normalizeState, type AppState } from '../src/lib/state.ts'
 
 const require = createRequire(import.meta.url)
 const wasmPath = path.join(path.dirname(require.resolve('sql.js')), 'sql-wasm.wasm')
-const dataDir = path.join(process.cwd(), 'data')
-const dbPath = path.join(dataDir, 'bookingroom.db')
 
-fs.mkdirSync(dataDir, { recursive: true })
+function dataDir(): string {
+  return (
+    process.env.RAILWAY_VOLUME_MOUNT_PATH ||
+    process.env.DATA_DIR ||
+    path.join(process.cwd(), 'data')
+  )
+}
+
+function dbPath(): string {
+  return path.join(dataDir(), 'bookingroom.db')
+}
 
 let SQL: SqlJsStatic | null = null
 let db: Database | null = null
@@ -64,8 +72,10 @@ function migrateLegacyEntries(database: Database): MonthEntry[] {
 async function getDb(): Promise<Database> {
   if (db) return db
   SQL ??= await initSqlJs({ locateFile: () => wasmPath })
-  if (fs.existsSync(dbPath)) {
-    db = new SQL.Database(fs.readFileSync(dbPath))
+  fs.mkdirSync(dataDir(), { recursive: true })
+  const file = dbPath()
+  if (fs.existsSync(file)) {
+    db = new SQL.Database(fs.readFileSync(file))
   } else {
     db = new SQL.Database()
   }
@@ -81,7 +91,7 @@ async function getDb(): Promise<Database> {
 
 function persist(): void {
   if (!db) return
-  fs.writeFileSync(dbPath, Buffer.from(db.export()))
+  fs.writeFileSync(dbPath(), Buffer.from(db.export()))
 }
 
 export async function getState(): Promise<AppState> {
