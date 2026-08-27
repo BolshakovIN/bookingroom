@@ -55,6 +55,7 @@ export default function App() {
   const [activeId, setActiveId] = useState('')
   const [nameMode, setNameMode] = useState<'idle' | 'add' | 'rename'>('idle')
   const [nameDraft, setNameDraft] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [ready, setReady] = useState(false)
   const [authGate, setAuthGate] = useState(false)
   const [passwordDraft, setPasswordDraft] = useState('')
@@ -300,6 +301,7 @@ export default function App() {
   function switchApartment(id: string) {
     setActiveId(id)
     setNameMode('idle')
+    setConfirmDelete(false)
     const found = entries.find(
       (e) => e.apartmentId === id && e.year === year && e.month === month,
     )
@@ -352,6 +354,7 @@ export default function App() {
     setApartments(nextList)
     setEntries((prev) => prev.filter((item) => item.apartmentId !== removedId))
     switchApartment(nextList[0].id)
+    setConfirmDelete(false)
   }
 
   const filePrefix = `bookingroom-${fileSlug(currentApartment?.name ?? 'kvartira')}-${year}`
@@ -552,6 +555,7 @@ export default function App() {
                 onClick={() => {
                   setNameMode('add')
                   setNameDraft('')
+                  setConfirmDelete(false)
                 }}
               >
                 + Квартира
@@ -562,18 +566,40 @@ export default function App() {
                 onClick={() => {
                   setNameMode('rename')
                   setNameDraft(currentApartment.name)
+                  setConfirmDelete(false)
                 }}
               >
                 Переименовать
               </button>
-              <button
-                type="button"
-                className="pill"
-                onClick={deleteApartment}
-                disabled={apartments.length < 2}
-              >
-                Удалить квартиру
-              </button>
+              <div className="delete-wrap">
+                <button
+                  type="button"
+                  className="pill"
+                  onClick={() => setConfirmDelete(true)}
+                  disabled={apartments.length < 2}
+                >
+                  Удалить квартиру
+                </button>
+                {confirmDelete ? (
+                  <div className="delete-pop" role="dialog" aria-label="Подтверждение удаления">
+                    <p>
+                      Удалить «{currentApartment.name}» и все её записи? Это нельзя отменить.
+                    </p>
+                    <div className="delete-pop-actions">
+                      <button type="button" className="btn btn-danger" onClick={deleteApartment}>
+                        Удалить
+                      </button>
+                      <button
+                        type="button"
+                        className="pill"
+                        onClick={() => setConfirmDelete(false)}
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : (
             <form
